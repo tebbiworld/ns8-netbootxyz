@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+
+#
+# Copyright (C) 2026 tebbi
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+# Apply the netboot.xyz module configuration:
+#   * state/environment (agent.set_env): settings echoed by get-configuration
+#     and expanded by the systemd units.
+#   * state/htpasswd: HTTP basic auth for the web app (SHA-512 crypt).
+#   * state/dnsmasq.conf: proxyDHCP settings for netbootxyz-tftp.service.
+
+import os
+import sys
+import json
+import subprocess
+
+import agent
+import netbootxyz_net
+
+data = json.load(sys.stdin)
+
+host = data.get("host", "")
+agent.set_env("TRAEFIK_HOST", host)
+agent.set_env("TRAEFIK_HTTP2HTTPS", data.get("http2https", True))
+
+admin_user = data.get("admin_user") or os.environ.get("ADMIN_USER", "admin")
+agent.set_env("ADMIN_USER", admin_user)
+agent.set_env("IP_ALLOWLIST", ",".join(c.strip() for c in data.get("ip_allowlist", []) if c.strip()))
+
+htpasswd = "htpasswd"
+password = data.get("admin_password") or ""
+if password:
+    digest = subprocess.run(
+        ["openssl", "passwd", "-6", "-stdin"],
+        input=password, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    with open(htpasswd + ".tmp", "w") as f:
+        os.fchmod(f.fileno(), 0o600)
+        f.write(f"{admin_user}:{digest}\n")
+    os.replace(htpasswd + ".tmp", htpasswd)
+elif os.path.exists(htpasswd) and os.path.getsize(htpasswd) > 0:
+    # Keep the stored password but follow a changed login name.
+    with open(htpasswd) as f:
+        digest = f.read().strip().split(":", 1)[1]
+    with open(htpasswd + ".tmp", "w") as f:
+        os.fchmod(f.fileno(), 0o600)
+        f.write(f"{admin_user}:{digest}\n")
+    os.replace(htpasswd + ".tmp", htpasswd)
+
+proxy_dhcp = bool(data["proxy_dhcp"])
+uefi_mode = data.get("uefi_boot_mode", "standard")
+server = netbootxyz_net.find_network(data["pxe_server_ip"])
+agent.set_env("PXE_SERVER_IP", data["pxe_server_ip"])
+agent.set_env("PROXY_DHCP", proxy_dhcp)
+agent.set_env("UEFI_BOOT_MODE", uefi_mode)
+
+with open("dnsmasq.conf", "w") as f:
+    f.write(netbootxyz_net.dnsmasq_conf(proxy_dhcp, server, uefi_mode))

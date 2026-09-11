@@ -1,0 +1,60 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Configure netboot.xyz",
+    "$id": "http://schema.nethserver.org/netbootxyz/configure-module.json",
+    "description": "Configure the netboot.xyz PXE boot server",
+    "examples": [
+        {
+            "host": "pxe.example.org",
+            "lets_encrypt": false,
+            "http2https": true,
+            "admin_user": "admin",
+            "admin_password": "s3cret-Passw0rd",
+            "ip_allowlist": ["192.168.1.0/24"],
+            "pxe_server_ip": "192.168.1.10",
+            "proxy_dhcp": true,
+            "uefi_boot_mode": "standard"
+        }
+    ],
+    "type": "object",
+    "required": ["pxe_server_ip", "proxy_dhcp"],
+    "properties": {
+        "host": {
+            "type": "string",
+            "description": "Host name of the web app (menu editor). Empty disables the web route.",
+            "pattern": "^$|^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$",
+            "maxLength": 253
+        },
+        "lets_encrypt": {"type": "boolean"},
+        "http2https": {"type": "boolean"},
+        "admin_user": {
+            "type": "string",
+            "description": "Web app login name (HTTP basic auth)",
+            "pattern": "^[A-Za-z0-9._-]{1,64}$"
+        },
+        "admin_password": {
+            "type": "string",
+            "description": "New web app password; empty keeps the stored one",
+            "maxLength": 256
+        },
+        "ip_allowlist": {
+            "type": "array",
+            "description": "Client networks (CIDR) allowed to reach the web app; empty allows all",
+            "items": {"type": "string", "minLength": 1, "maxLength": 64}
+        },
+        "pxe_server_ip": {
+            "type": "string",
+            "description": "Node IPv4 address clients load the boot files from (TFTP)",
+            "format": "ipv4"
+        },
+        "proxy_dhcp": {
+            "type": "boolean",
+            "description": "Answer PXE clients with proxyDHCP, leaving the LAN DHCP server unchanged"
+        },
+        "uefi_boot_mode": {
+            "type": "string",
+            "description": "UEFI boot file: standard netboot.xyz iPXE or the signed Secure Boot chain",
+            "enum": ["standard", "secureboot"]
+        }
+    }
+}

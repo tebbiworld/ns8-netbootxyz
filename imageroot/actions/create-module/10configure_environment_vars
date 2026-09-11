@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+
+#
+# Copyright (C) 2026 tebbi
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+# Seed the environment for a fresh netboot.xyz instance: the loopback port the
+# password-protected web app is published on, and conservative defaults (TFTP
+# only, proxyDHCP off, standard UEFI boot file). configure-module applies the
+# rest.
+
+import os
+
+import agent
+import netbootxyz_net
+
+tcp_ports = [p.strip() for p in os.environ.get("TCP_PORTS", "").split(",") if p.strip()]
+agent.set_env("WEB_PORT", tcp_ports[0] if tcp_ports else "3000")
+agent.set_env("ADMIN_USER", "admin")
+agent.set_env("PROXY_DHCP", "False")
+agent.set_env("UEFI_BOOT_MODE", "standard")
+
+default = netbootxyz_net.default_address()
+agent.set_env("PXE_SERVER_IP", default["address"] if default else "")

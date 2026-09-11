@@ -1,0 +1,17 @@
+{
+  "name": "netboot.xyz",
+  "description": {
+    "en": "PXE network boot server: boot installers and live systems for dozens of operating systems straight from the internet, no ISO uploads needed",
+    "de": "PXE-Netzwerk-Bootserver: Installer und Live-Systeme für Dutzende Betriebssysteme direkt aus dem Internet starten, ganz ohne ISO-Uploads"
+  },
+  "categories": ["system_administration"],
+  "authors": [
+    { "name": "tebbi", "email": "info@ebbinghaus.world" }
+  ],
+  "docs": {
+    "documentation_url": "https://github.com/tebbiworld/ns8-netbootxyz/blob/main/README.md",
+    "bug_url": "https://github.com/tebbiworld/ns8-netbootxyz/issues",
+    "code_url": "https://github.com/tebbiworld/ns8-netbootxyz"
+  },
+  "source": "ghcr.io/tebbiworld/netbootxyz"
+}

@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+
+#
+# Copyright (C) 2026 tebbi
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+# Return the current configuration for the UI, plus the node's LAN addresses
+# (to pick the boot server) and the DHCP options a router needs when proxyDHCP
+# is not used. The web app password is never echoed back.
+
+import os
+import sys
+import json
+
+import agent
+import netbootxyz_net
+
+host = os.getenv("TRAEFIK_HOST", "")
+networks = netbootxyz_net.list_networks()
+default = netbootxyz_net.default_address(networks)
+server_ip = os.getenv("PXE_SERVER_IP") or (default["address"] if default else "")
+uefi_mode = os.getenv("UEFI_BOOT_MODE", "standard")
+uefi_files = netbootxyz_net.UEFI_BOOT_FILES.get(uefi_mode, netbootxyz_net.UEFI_BOOT_FILES["standard"])
+allowlist = [c for c in os.getenv("IP_ALLOWLIST", "").split(",") if c]
+
+try:
+    lets_encrypt = agent.get_route(os.environ["MODULE_ID"]).get("lets_encrypt", False) if host else False
+except Exception:
+    lets_encrypt = False
+
+config = {
+    "host": host,
+    "http2https": os.getenv("TRAEFIK_HTTP2HTTPS", "True") == "True",
+    "lets_encrypt": lets_encrypt,
+    "admin_user": os.getenv("ADMIN_USER", "admin"),
+    "admin_password_set": os.path.exists("htpasswd") and os.path.getsize("htpasswd") > 0,
+    "ip_allowlist": allowlist,
+    "pxe_server_ip": server_ip,
+    "proxy_dhcp": os.getenv("PROXY_DHCP") == "True",
+    "uefi_boot_mode": uefi_mode,
+    "networks": networks,
+    "dhcp_options": {
+        "option66": server_ip,
+        "option67_uefi": uefi_files["x86_64"],
+        "option67_bios": netbootxyz_net.BIOS_BOOT_FILE,
+    },
+    "url": f"https://{host}/" if host else "",
+}
+
+json.dump(config, fp=sys.stdout)

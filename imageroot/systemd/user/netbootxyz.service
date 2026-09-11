@@ -1,0 +1,52 @@
+#
+# Copyright (C) 2026 tebbi
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+# netboot.xyz web app (menu editor, menu upgrades). The web app itself has no
+# authentication, so it is never published directly: the container's own nginx
+# listens on 8080 with HTTP basic auth (state/htpasswd) and proxies to the web
+# app on 3000 inside the container network namespace. Only 127.0.0.1:${WEB_PORT}
+# -> 8080 is published; Traefik terminates TLS in front of it.
+#
+# On first start the image's init script downloads the netboot.xyz boot files
+# and menus from the netboot.xyz GitHub releases into the netbootxyz-config
+# volume, which netbootxyz-tftp.service serves over TFTP.
+
+[Unit]
+Description=netboot.xyz web app
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=PODMAN_SYSTEMD_UNIT=%n
+EnvironmentFile=%S/state/environment
+WorkingDirectory=%S/state
+Restart=always
+TimeoutStartSec=300
+TimeoutStopSec=70
+# An empty htpasswd keeps the web app locked until an admin password is set.
+ExecStartPre=/bin/touch %S/state/htpasswd
+ExecStartPre=/bin/rm -f %t/netbootxyz.pid %t/netbootxyz.ctr-id
+ExecStart=/usr/bin/podman run \
+    --conmon-pidfile %t/netbootxyz.pid \
+    --cidfile %t/netbootxyz.ctr-id \
+    --cgroups=no-conmon \
+    --replace -d --name netbootxyz \
+    --publish 127.0.0.1:${WEB_PORT}:8080 \
+    --volume netbootxyz-config:/config:z \
+    --volume %S/nginx/ns8-admin.conf:/ns8/ns8-admin.conf:ro,z \
+    --volume %S/state/htpasswd:/ns8/htpasswd:ro,z \
+    --env NGINX_PORT=8081 \
+    --env WEB_APP_PORT=3000 \
+    --entrypoint /bin/sh \
+    ${NETBOOTXYZ_IMAGE} \
+    -c "mkdir -p /config/nginx/site-confs && cp /ns8/ns8-admin.conf /config/nginx/site-confs/ns8-admin && cp /ns8/htpasswd /config/nginx/ns8-htpasswd && exec /start.sh"
+ExecStop=/usr/bin/podman stop --ignore --cidfile %t/netbootxyz.ctr-id -t 30
+ExecStopPost=/usr/bin/podman rm --ignore -f --cidfile %t/netbootxyz.ctr-id
+PIDFile=%t/netbootxyz.pid
+Type=forking
+SyslogIdentifier=%u
+
+[Install]
+WantedBy=default.target

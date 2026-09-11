@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+
+#
+# Copyright (C) 2026 tebbi
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+# Open TFTP always, and the proxyDHCP ports (DHCP 67/udp, PXE boot server
+# discovery 4011/udp) only while proxyDHCP is enabled.
+
+import os
+import sys
+import json
+
+import agent
+
+data = json.load(sys.stdin)
+ports = ["69/udp"]
+if data["proxy_dhcp"]:
+    ports += ["67/udp", "4011/udp"]
+agent.assert_exp(agent.add_public_service(os.environ["MODULE_ID"], ports, replace_ports=True))
