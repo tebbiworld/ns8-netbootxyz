@@ -1,104 +1,124 @@
 ======netboot.xyz======
-[[https://netboot.xyz|netboot.xyz]] turns a node into a PXE network boot server. Machines on the LAN boot into a menu with installers, live systems and tools for dozens of operating systems — Debian, Ubuntu, Fedora, Rocky, Alma, Arch, Windows PE, Clonezilla, GParted, memtest and more. **Everything is loaded from the internet on demand: no ISO files to download or upload.**
+[[https://netboot.xyz|netboot.xyz]] is an iPXE-based boot menu. Machines on the LAN start over the network and pick from installers, live systems and tools for dozens of operating systems: Debian, Ubuntu, Fedora, Rocky, Alma, Arch, Clonezilla, GParted, memtest and more. Kernels, initrds and images are fetched from the internet on demand, so no ISO files have to be uploaded or kept on the node.
 
-====Announcement and talks====
+====Announcement and links====
 The netboot.xyz app announcement TBA
 
 netboot.xyz is a community application from the [[ns8:tebbiworld_repository|tebbiworld]] repository. Documentation and source can be found on [[https://github.com/tebbiworld/ns8-netbootxyz|Github]]
 
-=====What it does=====
-  - A machine starts network boot (PXE). Your existing DHCP server assigns the address; the boot server and boot file come either from **proxyDHCP** on this node or from **DHCP options 66/67** on your router.
-  - The machine loads the netboot.xyz iPXE binary from this node over TFTP.
-  - netboot.xyz shows its menu and pulls kernels, initrds and images from the distributions' official mirrors over HTTP(S).
+=====What the module adds to the official image=====
+The upstream image ''ghcr.io/netbootxyz/netbootxyz'' is pinned to version ''0.7.6-nbxyz24''. The module adds:
 
-The module picks the right boot file per firmware (legacy BIOS, UEFI x86_64, UEFI ARM64, optionally the signed Secure Boot chain) and includes the netboot.xyz web app for customising the menus, protected by a login and Traefik.
+  * a split into **two rootless containers**, so the menu web app does not sit in the host network;
+  * a **password in front of the menu web app**, which has no login of its own;
+  * a **proxyDHCP configuration** generated from the settings in the NethServer interface, serving the boot file that matches each client's firmware;
+  * integration with **Traefik** (TLS, optional client-network allowlist), firewall openings and backup.
+
+The signed Secure Boot files are taken unmodified from the releases of the iPXE project.
+
+=====Intended use and limits=====
+
+  * **One instance per node.** TFTP and proxyDHCP bind fixed ports in the host network.
+  * **Only one PXE server may answer in a network.**
+  * Clients need internet access; the operating system images always come from the internet.
+  * IPv4 only.
+  * The web app can mirror images locally, but the module does not publish that store over HTTP.
+  * Secure Boot requires firmware that trusts the "Microsoft 3rd party UEFI CA", and always loads its menus from ''boot.netboot.xyz''.
 
 =====Architecture=====
-Two rootless containers from the pinned ''ghcr.io/netbootxyz/netbootxyz'' image, sharing the ''netbootxyz-config'' volume (boot files and menus):
 
 ^ Container ^ Network ^ Ports ^ Purpose ^
-| ''netbootxyz-tftp'' | host | 69/udp, optionally 67/udp + 4011/udp | dnsmasq: TFTP and proxyDHCP |
-| ''netbootxyz'' | private | ''127.0.0.1:<port>'' → 8080 | menu editor web app behind nginx basic auth, fronted by Traefik |
+| ''netbootxyz-tftp'' | host | 69/udp; with proxyDHCP also 67/udp and 4011/udp | dnsmasq: TFTP and proxyDHCP |
+| ''netbootxyz'' | own network | web app on 3000, image nginx with basic auth on 8080, published on 127.0.0.1 with a port allocated by the node | menu web app behind Traefik |
 
-TFTP and proxyDHCP need the host network: TFTP transfers use ephemeral ports and proxyDHCP must see LAN broadcasts. NethServer lowers ''net.ipv4.ip_unprivileged_port_start'' to 23, so the rootless container can bind them; the module opens the ports in the node firewall (''node:fwadm''). The web app has no authentication of its own and is never published directly. Because the ports are fixed, **only one instance per node** is possible.
+The host network is required because TFTP transfers use changing ports and proxyDHCP has to see LAN broadcasts. NethServer sets ''net.ipv4.ip_unprivileged_port_start=23'', so the rootless container can bind these ports. dnsmasq needs ''NET_ADMIN'' and ''NET_RAW'' for DHCP; rootless, these apply only inside the module's namespace.
+
+Both containers share the volume ''netbootxyz-config'' with the boot files and menus. On first start the image downloads the menus and boot files of the current netboot.xyz version and the Secure Boot files, which takes one to two minutes.
 
 =====Installation=====
-On the NethServer 8 cluster leader:
+The module lives in the software repository ''tebbiworld'':
 
-<code bash>
-add-module ghcr.io/tebbiworld/netbootxyz:1.0.0 1
+<code>
+https://raw.githubusercontent.com/tebbiworld/ns8-repo/main/ns8/updates/
 </code>
 
-Configure it — the boot server address must be a **static** address of the node:
+Install it on a NethServer 8 node:
 
-<code bash>
-api-cli run module/netbootxyz1/configure-module --data '{
-  "pxe_server_ip": "192.168.1.10",
-  "proxy_dhcp": true,
-  "uefi_boot_mode": "standard",
-  "host": "pxe.example.org",
-  "lets_encrypt": false,
-  "http2https": true,
-  "admin_user": "admin",
-  "admin_password": "s3cret-Passw0rd",
-  "ip_allowlist": ["192.168.1.0/24"]
-}'
+<code>
+add-module ghcr.io/tebbiworld/netbootxyz:latest 1
 </code>
 
-On first start the image downloads the boot files and menus of the current netboot.xyz release into the volume. Then network-boot any machine in the LAN.
+Save the settings once after the installation. To remove the instance:
+
+<code>
+remove-module --no-preserve netbootxyz1
+</code>
 
 =====Pointing clients at the boot server=====
+
 ====Option A: proxyDHCP (recommended)====
-Enable //Answer PXE clients directly (proxyDHCP)//. Your router keeps assigning addresses with options 66/67 empty; this node only adds the boot information for machines that network boot, choosing the file per firmware (DHCP option 93):
+Switch proxyDHCP on in the module. The existing DHCP server keeps assigning addresses; the node only adds the boot information for machines that start over the network, and picks the file from the firmware identifier in DHCP option 93:
 
-^ Client ^ Boot file ^
-| Legacy BIOS | ''netboot.xyz.kpxe'' |
-| UEFI x86_64 | ''netboot.xyz.efi'' or, in Secure Boot mode, ''secureboot-x86_64/shimx64.efi'' |
-| UEFI ARM64 | ''netboot.xyz-arm64.efi'' or ''secureboot-arm64/shimaa64.efi'' |
+^ Firmware ^ Standard ^ Secure Boot compatible ^
+| BIOS | ''netboot.xyz.kpxe'' | ''netboot.xyz.kpxe'' |
+| UEFI x86_64 (arch 7 and 9) | ''netboot.xyz.efi'' | ''secureboot-x86_64/shimx64.efi'' |
+| UEFI ARM64 (arch 11) | ''netboot.xyz-arm64.efi'' | ''secureboot-arm64/shimaa64.efi'' |
 
-Clients that already run iPXE (Proxmox and QEMU virtual machines, many server NICs) get the boot file directly in the proxyDHCP offer. Do not run a second PXE server in the same network.
+Clients that already are iPXE — Proxmox and QEMU virtual machines, many server network cards, recognised by the user class ''iPXE'' — receive the boot file directly in the first proxyDHCP offer, because iPXE discards the broadcast reply of the boot server exchange on port 4011.
 
-====Option B: DHCP options on the router====
-Keep proxyDHCP off and set on your DHCP server option 66 (TFTP server) to the boot server address and option 67 (boot file) to ''netboot.xyz.efi'' for UEFI or ''netboot.xyz.kpxe'' for BIOS machines. Most routers send one file to every client, so mixed BIOS/UEFI networks work best with proxyDHCP. On a DrayTek Vigor: //LAN » General Setup » DHCP Server Option//, both as ASCII strings.
+====Option B: options on your own DHCP server====
+Set option 66 to the address of the node and option 67 to the name of the boot file, both as ASCII text. If your DHCP server has a //Next Server// field (SIADDR), set it to the address of the node as well.
+
+**Important limitation:** routers send the same boot file to every client. A BIOS machine that receives ''netboot.xyz.efi'' aborts with "exec format error" and reboots endlessly. For mixed networks, prefer proxyDHCP.
+
+===Example: DrayTek Vigor===
+//LAN » General Setup » the affected subnet » DHCP Server Option//, data type "ASCII Character".
+
+//Configurations for other routers are welcome here.//
 
 =====Settings=====
 
 ^ Setting ^ Description ^
-| Boot server address | Node IPv4 address the clients load the boot files from. Use a static address — a changed DHCP lease silently breaks network boot. |
-| Answer PXE clients directly (proxyDHCP) | Adds the boot information next to the existing DHCP server. |
-| UEFI boot mode | //Standard//: netboot.xyz iPXE binary (Secure Boot must be off on the clients). //Secure Boot compatible//: Microsoft-signed shim and iPXE-signed binaries; menus are loaded from ''boot.netboot.xyz''; the firmware must trust the Microsoft 3rd-party UEFI CA. |
-| Host name | Host name of the menu editor web app; empty disables the web route. |
-| Let's Encrypt / HTTP to HTTPS | TLS for the web app. |
-| Login / password | HTTP basic auth of the web app (blank password keeps the stored one). |
-| Allowed client networks | CIDR list allowed to reach the web app; empty allows all. |
+| Boot server address | Address of the node clients load the boot files from. Chosen from the detected addresses; those obtained by DHCP are marked, because they can change on reboot and silently break network boot. Pick a static address. |
+| Answer PXE clients directly (proxyDHCP) | See option A. Off by default. |
+| UEFI boot mode | //Standard// serves the netboot.xyz iPXE file. //Secure Boot compatible// serves the Microsoft-signed shim and the programs signed by the iPXE project, so machines with Secure Boot enabled can start. |
+| Host name | Optional name for the menu web app. Empty means no route is published; PXE boot still works. |
+| Let's Encrypt certificate, Redirect HTTP to HTTPS | As in other modules. |
+| Login name, Password | Credentials for the menu web app. Minimum eight characters. |
+| Allowed client networks | List of networks in CIDR notation; only these reach the menu web app. Empty means all. |
 
-====Where the menus come from====
-Once netboot.xyz runs, it looks for local menus on the TFTP server your DHCP server announced (''next-server''). If the router announces none, the menus come from ''boot.netboot.xyz'' over HTTPS; if it announces itself, netboot.xyz tries there first and falls back after a few timeouts — press ''p'' at the "DHCP proxy detected" prompt to use this node. The operating system images always come from the internet; local menus only matter if you customise them in the web app.
+=====Where netboot.xyz loads its menus from=====
+After it starts, the netboot.xyz file looks for local menus on the TFTP server that the DHCP server announced as //next server//, which is not necessarily this node.
 
-=====Limitations=====
-  * One instance per node (fixed TFTP/proxyDHCP ports in the host network).
-  * Boot images are always loaded from the internet; clients need internet access. The web app can mirror assets, but the module does not publish them over HTTP.
-  * IPv4 only.
+  * If the DHCP server announces none, netboot.xyz loads its menus from ''boot.netboot.xyz'' over HTTPS.
+  * If //next server// points at this node, the local menus are used. They can be edited in the web app.
+  * If it points at a device without TFTP, a few timeouts occur; at the prompt "DHCP proxy detected" the key **p** switches to this node.
+
+The operating system images come from the internet in every case.
+
+=====Security notes=====
+
+  * The netboot.xyz web app has no login of its own. The module puts an nginx with basic auth in front of it and publishes it only through Traefik; the web app itself cannot be reached from outside.
+  * Whoever has access to the web app decides what every PXE client in the network boots. Set a password and use the allowlist of client networks.
+  * proxyDHCP affects every machine in the selected network that starts over the network.
 
 =====Backup=====
-The NS8 backup includes the web app login and the ''netbootxyz-config'' volume (boot files and customised menus).
-
-=====Licences and trademarks=====
-Unofficial, community-built package, not affiliated with or endorsed by the netboot.xyz project. [[https://github.com/netbootxyz/netboot.xyz|netboot.xyz]] and its [[https://github.com/netbootxyz/docker-netbootxyz|container image]] are Apache-2.0 licensed and pulled at runtime; the Secure Boot binaries come unmodified from the [[https://github.com/ipxe/ipxe/releases|iPXE project]]. The module's own code is licensed %%GPL%%-3.0-or-later.
+The backup covers the volume ''netbootxyz-config'' with the boot files, the menus and your own customisations, and the credentials file of the web app.
 
 =====Links=====
 
-  * [[https://netboot.xyz/docs/|netboot.xyz documentation]]
-  * [[https://github.com/tebbiworld/ns8-netbootxyz|Module on Github]]
-  * [[https://github.com/tebbiworld/ns8-netbootxyz/issues|Bug reports]]
+  * [[https://netboot.xyz|netboot.xyz]]
+  * [[https://github.com/netbootxyz/docker-netbootxyz|Upstream container image]]
+  * [[https://github.com/ipxe/ipxe|iPXE releases]]
+  * [[https://github.com/tebbiworld/ns8-netbootxyz|Module repository]] and [[https://github.com/tebbiworld/ns8-netbootxyz/issues|bug reports]]
 
 =====Disclaimer=====
-Private hobby project, shared as-is. No warranty, no guaranteed support, use at your own risk.
+Private hobby project, shared as-is. No warranty, no guaranteed support, use at your own risk. Unofficial community package, not affiliated with or endorsed by the netboot.xyz project. netboot.xyz is licensed Apache-2.0; the module's own code is licensed %%GPL%%-3.0-or-later.
 
 ----
 {{tag>application}}
-{{tag>category:system_administration}}
+{{tag>category:systemadmin}}
 {{tag>status:Alpha}}
 {{tag>certlevel:1}}
 {{tag>repo:tebbiworld}}
-{{tag>description:"netboot.xyz PXE network boot server with proxyDHCP"}}
+{{tag>description:"PXE network boot server for dozens of operating systems, no ISO uploads needed"}}
