@@ -117,7 +117,7 @@ Private hobby project, shared as-is. No warranty, no guaranteed support, use at 
 
 ----
 {{tag>application}}
-{{tag>category:systemadmin}}
+{{tag>category:Sysadmin}}
 {{tag>status:Alpha}}
 {{tag>certlevel:1}}
 {{tag>repo:tebbiworld}}
