@@ -32,5 +32,9 @@ The restored instance has settings and the web password
 
 *** Keywords ***
 Restored web login works
-    ${code} =    Run on node    curl -sSk -o /dev/null -w '\%{http_code}' -u 'ciadmin:Boot#Pass 12' -H 'Host: netboot.ci.test' https://127.0.0.1/
+    # Asked at the backend of the restored instance, not through Traefik: the stopped
+    # original still owns a route for the same host name, so the host header is ambiguous.
+    ${route} =    Run task    module/traefik1/get-route    {"instance":"${restored_id}"}
+    Should Be Equal    ${route['host']}    netboot.ci.test
+    ${code} =    Run on node    curl -sS -o /dev/null -w '\%{http_code}' -u 'ciadmin:Boot#Pass 12' ${route['url']}/
     Should Be Equal As Strings    ${code.strip()}    200
