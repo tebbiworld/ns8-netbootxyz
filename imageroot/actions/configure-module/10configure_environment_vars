@@ -24,6 +24,9 @@ data = json.load(sys.stdin)
 host = data.get("host", "")
 agent.set_env("TRAEFIK_HOST", host)
 agent.set_env("TRAEFIK_HTTP2HTTPS", data.get("http2https", True))
+if "lets_encrypt" in data:
+    # kept so restore-module can re-create the route with the same setting
+    agent.set_env("TRAEFIK_LETS_ENCRYPT", data["lets_encrypt"])
 
 admin_user = data.get("admin_user") or os.environ.get("ADMIN_USER", "admin")
 agent.set_env("ADMIN_USER", admin_user)
