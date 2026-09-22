@@ -46,11 +46,15 @@ buildah add "${container}" ui/dist /ui
 # web app, fronted by Traefik. TFTP (69/udp) and the optional proxyDHCP service
 # (67/udp, 4011/udp) run in the host network namespace and are opened in the
 # node firewall by configure-module, hence node:fwadm.
+# One instance per node: TFTP (UDP 69) and proxyDHCP listen on the node network.
+# The bulk-data volumes can be placed on an additional disk at install time.
 buildah config --entrypoint=/ \
     --label="org.nethserver.authorizations=traefik@node:routeadm node:fwadm" \
     --label="org.nethserver.tcp-ports-demand=1" \
     --label="org.nethserver.rootfull=0" \
     --label="org.nethserver.images=${runtime_images[*]}" \
+    --label="org.nethserver.max-per-node=1" \
+    --label="org.nethserver.volumes=netbootxyz-config" \
     "${container}"
 buildah commit "${container}" "${repobase}/${reponame}"
 
