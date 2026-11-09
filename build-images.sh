@@ -19,7 +19,7 @@ reponame="netbootxyz"
 # same TFTP server, web app and init logic. The netboot.xyz boot menus
 # themselves are downloaded from the netboot.xyz GitHub releases at first start
 # and can be upgraded from the web app.
-netbootxyz_image="ghcr.io/netbootxyz/netbootxyz:0.7.6-nbxyz24"
+netbootxyz_image="ghcr.io/netbootxyz/netbootxyz:0.7.6-nbxyz27"
 
 runtime_images=(
     "${netbootxyz_image}"
